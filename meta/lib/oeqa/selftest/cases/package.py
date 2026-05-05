@@ -185,6 +185,28 @@ class PackageTests(OESelftestTestCase):
                 if not gdbtest(qemu, binary):
                     self.fail('GDB %s failed' % binary)
 
+    def test_kmodule_prefilter(self):
+        # Regression test for YOCTO #2348: process_split_and_strip_files() must
+        # use f.endswith(".ko") so that compressed modules (.ko.xz, .ko.gz) are
+        # not fed to is_elf() / strip.
+        bitbake("selftest-ko-filter -c package")
+
+        pkgdest = get_bb_var('PKGDEST', 'selftest-ko-filter')
+        libdir  = get_bb_var('libdir',  'selftest-ko-filter')
+        moddir  = pkgdest + "/selftest-ko-filter" + libdir + "/selftest-ko-filter"
+
+        self.assertTrue(os.path.exists(moddir + "/module.ko"),
+                        "module.ko missing from PKGDEST")
+
+        for fname, magic in [("module.ko.xz", b"\xfd\x37\x7a\x58\x5a\x00"),
+                             ("module.ko.gz", b"\x1f\x8b")]:
+            path = moddir + "/" + fname
+            self.assertTrue(os.path.exists(path),
+                            "%s missing from PKGDEST" % fname)
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(len(magic)), magic,
+                                 "%s header corrupted in PKGDEST" % fname)
+
     def test_preserve_ownership(self):
         features = 'IMAGE_INSTALL:append = " selftest-chown"\n'
         self.write_config(features)
