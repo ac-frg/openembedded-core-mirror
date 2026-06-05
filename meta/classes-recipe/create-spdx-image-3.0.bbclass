@@ -6,6 +6,7 @@
 # SPDX image tasks
 
 SPDX_ROOTFS_PACKAGES = "${SPDXDIR}/rootfs-packages.json"
+SPDX_ROOTFS_REMOVED_PACKAGES = "${SPDXDIR}/rootfs-removed-packages.json"
 SPDXIMAGEDEPLOYDIR = "${SPDXDIR}/image-deploy"
 SPDXROOTFSDEPLOY = "${SPDXDIR}/rootfs-deploy"
 
@@ -15,14 +16,20 @@ python spdx_collect_rootfs_packages() {
     from oe.rootfs import image_list_installed_packages
 
     root_packages_file = Path(d.getVar("SPDX_ROOTFS_PACKAGES"))
+    root_removed_packages_file = Path(d.getVar("SPDX_ROOTFS_REMOVED_PACKAGES"))
 
     packages = image_list_installed_packages(d)
     if not packages:
         packages = {}
 
+    removed_packages = (d.getVar("ROOTFS_REMOVED_PACKAGES") or "").split()
+
     root_packages_file.parent.mkdir(parents=True, exist_ok=True)
     with root_packages_file.open("w") as f:
         json.dump(packages, f)
+
+    with root_removed_packages_file.open("w") as f:
+        json.dump(removed_packages, f)
 }
 ROOTFS_POSTUNINSTALL_COMMAND =+ "spdx_collect_rootfs_packages"
 

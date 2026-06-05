@@ -1122,7 +1122,7 @@ def find_by_spdxid(d, spdxid, *, required=False):
     return find_jsonld(d, *jsonld_hash_path(hash_id(spdxid)), required=required)
 
 
-def create_sbom(d, name, root_elements, add_objectsets=[]):
+def create_sbom(d, name, root_elements, add_objectsets=[], removed_packages=[]):
     objset = ObjectSet.new_objset(d, name)
 
     sbom = objset.add(
@@ -1141,6 +1141,12 @@ def create_sbom(d, name, root_elements, add_objectsets=[]):
             "The following SPDX IDs were unable to be resolved:\n  "
             + "\n  ".join(sorted(list(missing_spdxids)))
         )
+
+    if removed_packages:
+        for pkg in objset.foreach_type(oe.spdx30.software_Package):
+            if pkg.name in removed_packages and pkg.software_primaryPurpose == oe.spdx30.software_SoftwarePurpose.install:
+                pkg.software_primaryPurpose = oe.spdx30.software_SoftwarePurpose.other
+                bb.note("Reclassified removed package %s SPDX entry from install to other" % pkg.name)
 
     # Filter out internal extensions from final SBoMs
     objset.remove_internal_extensions()

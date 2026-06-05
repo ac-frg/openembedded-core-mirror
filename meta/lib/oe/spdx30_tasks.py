@@ -1538,6 +1538,7 @@ def create_image_sbom_spdx(d):
     image_link_name = d.getVar("IMAGE_LINK_NAME")
     imgdeploydir = Path(d.getVar("SPDXIMAGEDEPLOYDIR"))
     machine = d.getVar("MACHINE")
+    root_removed_packages_file = Path(d.getVar("SPDX_ROOTFS_REMOVED_PACKAGES"))
 
     spdx_path = imgdeploydir / (image_name + ".spdx.json")
 
@@ -1559,7 +1560,18 @@ def create_image_sbom_spdx(d):
     for o in image_objset.foreach_root(oe.spdx30.software_File):
         root_elements.append(oe.sbom30.get_element_link_id(o))
 
-    objset, sbom = oe.sbom30.create_sbom(d, image_name, root_elements)
+    try:
+        with root_removed_packages_file.open("r") as f:
+            removed_packages = json.load(f)
+    except FileNotFoundError:
+        removed_packages = []
+
+    objset, sbom = oe.sbom30.create_sbom(
+        d,
+        image_name,
+        root_elements,
+        removed_packages=removed_packages,
+    )
 
     # Set supplier on root elements if SPDX_IMAGE_SUPPLIER is defined
     supplier = objset.new_agent("SPDX_IMAGE_SUPPLIER", add=False)

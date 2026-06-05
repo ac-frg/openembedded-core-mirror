@@ -261,10 +261,13 @@ class Rootfs(object, metaclass=ABCMeta):
 
 
     def _uninstall_unneeded(self):
+        removed_pkgs = set()
+
         # Remove the run-postinsts package if no delayed postinsts are found
         delayed_postinsts = self._get_delayed_postinsts()
         if delayed_postinsts is None:
             if os.path.exists(self.d.expand("${IMAGE_ROOTFS}${sysconfdir}/init.d/run-postinsts")) or os.path.exists(self.d.expand("${IMAGE_ROOTFS}${systemd_system_unitdir}/run-postinsts.service")):
+                removed_pkgs.add("run-postinsts")
                 self.pm.remove(["run-postinsts"])
 
         image_rorfs = bb.utils.contains("IMAGE_FEATURES", "read-only-rootfs",
@@ -285,6 +288,7 @@ class Rootfs(object, metaclass=ABCMeta):
             # to be uninstalled or to be managed correctly otherwise.
             provider = self.d.getVar("VIRTUAL-RUNTIME_update-alternatives")
             pkgs_to_remove = sorted([pkg for pkg in pkgs_installed if pkg in unneeded_pkgs], key=lambda x: x == provider)
+            removed_pkgs.update(pkgs_to_remove)
 
             # update-alternatives provider is removed in its own remove()
             # call because all package managers do not guarantee the packages
@@ -295,6 +299,8 @@ class Rootfs(object, metaclass=ABCMeta):
                 self.pm.remove(pkgs_to_remove[:-1], False)
             if len(pkgs_to_remove) > 0:
                 self.pm.remove([pkgs_to_remove[-1]], False)
+
+        self.d.setVar("ROOTFS_REMOVED_PACKAGES", " ".join(sorted(removed_pkgs)))
 
         if delayed_postinsts:
             self._save_postinsts()
