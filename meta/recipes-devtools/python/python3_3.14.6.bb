@@ -298,12 +298,6 @@ SKIPPED_TESTS += " \
     --ignore test_cursor_back_write \
 "
 
-# Needs IMAGE_FEATURE += \"tools-sdk\"
-SKIPPED_TESTS += " \
-    --ignore test_find_library_with_gcc \
-    --ignore test_find_library_with_ld \
-"
-
 # Fails due to differences in CFLAGS as as modified during build
 SKIPPED_TESTS += " \
     --ignore test_sysconfigdata_json \
