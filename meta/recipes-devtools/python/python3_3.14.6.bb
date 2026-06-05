@@ -554,10 +554,6 @@ RDEPENDS:${PN}-ptest = "\
     binutils \
     bzip2 \
     coreutils \
-    gcc \
-    gcc-symlinks \
-    g++ \
-    libgcc \
     locale-base-fr-fr \
     locale-base-en-us \
     locale-base-de-de \
