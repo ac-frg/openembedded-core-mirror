@@ -59,11 +59,14 @@ def rust_tool(d, target_var):
     return "rust = %s" % repr(cmd)
 
 def bindgen_args(d):
-    args = '${HOST_CC_ARCH}${TOOLCHAIN_OPTIONS} --target=${TARGET_SYS}'
+    args = '${HOST_CC_ARCH} ${TOOLCHAIN_OPTIONS} --target=${HOST_SYS}'
     # For SDK packages TOOLCHAIN_OPTIONS don't contain full sysroot path
     if bb.data.inherits_class("nativesdk", d):
         args += ' --sysroot=${STAGING_DIR_HOST}${SDKPATHNATIVE}${prefix_nativesdk}'
     items = d.expand(args).split()
+    # Use the LLVM Linux target triple for all toolchains instead of -mcpu.
+    # Note: The big.LITTLE CPU architectures are not supported by llvm/clang.
+    items = [item for item in items if not item.startswith('-mcpu')]
     return repr(items[0] if len(items) == 1 else items)
 
 addtask write_config before do_configure
