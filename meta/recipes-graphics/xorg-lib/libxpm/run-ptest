@@ -1,0 +1,48 @@
+#!/bin/sh
+
+TESTS="XpmCreate XpmMisc XpmRead XpmWrite rgb"
+
+for test in $TESTS; do
+    if [ ! -x "./$test" ]; then
+        echo "SKIP: $test"
+        continue
+    fi
+
+    ./"$test" | \
+    while IFS= read -r line; do
+        case "$line" in
+            "ok "*)
+                # output: "ok <num> <path>" or "ok <num> # SKIP <reason>"
+                tmp="${line#ok }"
+                testname="${tmp#* }"
+                case "$line" in
+                    *"# SKIP"*)
+                        testname="${testname%% \# SKIP*}"
+                        echo "SKIP: ${test}/${testname}"
+                        ;;
+                    *)
+                        echo "PASS: ${test}/${testname}"
+                        ;;
+                esac
+                ;;
+            "not ok "*)
+                # output: "not ok <num> <testpath>"
+                tmp="${line#not ok }"
+                testname="${tmp#* }"
+                case "$line" in
+                    *"# SKIP"*)
+                        testname="${testname%% \# SKIP*}"
+                        echo "SKIP: ${test}/${testname}"
+                        ;;
+                    *"# TODO"*)
+                        testname="${testname%% \# TODO*}"
+                        echo "FAIL: ${test}/${testname}"
+                        ;;
+                    *)
+                        echo "FAIL: ${test}/${testname}"
+                        ;;
+                esac
+                ;;
+        esac
+    done
+done

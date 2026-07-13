@@ -58,6 +58,7 @@ PTESTS_FAST = "\
     libxml-simple-perl \
     libxml2 \
     libxmlb \
+    libxpm \
     libxslt \
     libyaml \
     logrotate \
