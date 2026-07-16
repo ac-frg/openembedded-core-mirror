@@ -25,3 +25,23 @@ do_kernel_configme:append () {
 # More details in: https://lists.openembedded.org/g/openembedded-core/message/229336
 # Disable ccache for kernel build if kernel rust support is enabled to workaround this.
 CCACHE_DISABLE ?= "1"
+
+# Rust support in the kernel on riscv64 only works with the LLVM/Clang
+# toolchain, not gcc:
+# https://docs.kernel.org/rust/arch-support.html
+do_check_riscv64_toolchain() {
+    if [ "${TARGET_ARCH}" = "riscv64" ] && [ "${TOOLCHAIN}" != "clang" ]; then
+        bbfatal "Rust support in the kernel on riscv64 requires the clang" \
+                "toolchain, but TOOLCHAIN is set to '${TOOLCHAIN}'. Set" \
+                "TOOLCHAIN:riscv64 = \"clang\" in kernel recipe (or) set" \
+                "TOOLCHAIN:pn-linux-yocto = \"clang\" in local.conf to build a" \
+                "riscv64 kernel with rust enabled. See" \
+                "https://docs.kernel.org/rust/arch-support.html for details."
+    fi
+}
+
+addtask do_check_riscv64_toolchain before do_fetch
+
+# lld is required when building the kernel with clang.
+DEPENDS:append:riscv64 = " lld-native"
+RUST_KERNEL_TASK_DEPENDS:append:riscv64 = " lld-native:do_populate_sysroot"
