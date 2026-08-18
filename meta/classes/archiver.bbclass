@@ -424,7 +424,12 @@ def create_tarball(d, srcdir, suffix, ar_outdir):
     bb.note('Creating %s' % tarname)
     dirname = os.path.dirname(srcdir)
     basename = os.path.basename(srcdir)
-    tar_cmd = ["tar", "--exclude=temp", "--exclude=patches", "--exclude=.pc", '-cf', tarname, basename, '-I', compression_cmd]
+    if d.getVarFlag('ARCHIVER_MODE', 'src') == "original":
+        tar_dir, content = srcdir, "."
+    else:
+        tar_dir, content = dirname, basename
+
+    tar_cmd = ["tar", "--exclude=temp", "--exclude=patches", "--exclude=.pc", '-C', tar_dir, '-cf', tarname, content, '-I', compression_cmd]
     subprocess.check_call(tar_cmd, cwd=dirname)
 
 # creating .diff.gz between source.orig and source
