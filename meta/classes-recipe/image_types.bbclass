@@ -249,7 +249,7 @@ multiubi_mkfs() {
 	mv ubinize${vname}-${IMAGE_NAME}.cfg ${IMGDEPLOYDIR}/
 
 	# Create own symlinks for 'named' volumes
-	if [ -n "$vname" ]; then
+	if [ -n "$vname" ] && [ -n "${IMAGE_LINK_NAME}" ]; then
 		cd ${IMGDEPLOYDIR}
 		if [ -e ${IMAGE_NAME}${vname}.ubifs ]; then
 			ln -sf ${IMAGE_NAME}${vname}.ubifs \
