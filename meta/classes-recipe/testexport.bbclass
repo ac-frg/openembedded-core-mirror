@@ -135,7 +135,7 @@ def copy_needed_files(d, tc):
 
     # Copy test data
     image_name = ("%s/%s" % (d.getVar('DEPLOY_DIR_IMAGE'),
-                            d.getVar('IMAGE_LINK_NAME')))
+                            d.getVar('IMAGE_LINK_NAME') or d.getVar('IMAGE_NAME')))
     image_manifest = "%s.manifest" % image_name
     tdname = "%s.testdata.json" % image_name
     test_data_path = os.path.join(export_path, 'data')
