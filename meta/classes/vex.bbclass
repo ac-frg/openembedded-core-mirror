@@ -204,7 +204,8 @@ python vex_write_rootfs_manifest () {
     with open(manifest_name, "w") as f:
         json.dump(json_data, f, indent=2)
 
-    update_symlinks(manifest_name, link_path)
+    if link_name:
+        update_symlinks(manifest_name, link_path)
     bb.plain("Image VEX JSON report stored in: %s" % manifest_name)
 }
 
