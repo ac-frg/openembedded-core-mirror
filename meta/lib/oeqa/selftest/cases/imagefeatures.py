@@ -332,3 +332,45 @@ CORE_IMAGE_EXTRA_INSTALL = "man-pages"
             status, output = qemu.run_serial("man --pager=cat intro")
             self.assertEqual(status, 1, 'Failed to run man: %s' % (output))
             self.assertIn("introduction to user commands", output)
+
+    def test_empty_image_link_name(self):
+        """
+        Test that an empty IMAGE_LINK_NAME suppresses the artifact symlinks
+        and that the classes reading an artifact back still locate it.
+        """
+        image = 'core-image-minimal'
+        vname = 'mtd_4_256'
+        config = """
+INHERIT += "vex"
+IMAGE_CLASSES += "testexport"
+IMAGE_LINK_NAME = ""
+IMAGE_NAME = "${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}"
+IMAGE_FSTYPES += "multiubi"
+MULTIUBI_BUILD = "%s"
+MKUBIFS_ARGS_%s ?= "-m 4096 -e 253952 -c 4096"
+UBINIZE_ARGS_%s ?= "-m 4096 -p 256KiB"
+TEST_TARGET_IP = "192.168.7.2"
+TEST_SERVER_IP = "192.168.7.1"
+""" % (vname, vname, vname)
+        self.write_config(config)
+
+        bitbake(image)
+        bb_vars = get_bb_vars(['DEPLOY_DIR_IMAGE', 'IMAGE_NAME', 'TEST_EXPORT_DIR'], image)
+        deploy_dir = bb_vars['DEPLOY_DIR_IMAGE']
+
+        # Artifacts are still named after IMAGE_NAME
+        for name in ("%s.vex.json" % bb_vars['IMAGE_NAME'],
+                     "%s_%s.ubifs" % (bb_vars['IMAGE_NAME'], vname)):
+            self.assertTrue(os.path.exists(os.path.join(deploy_dir, name)),
+                            "%s is missing from %s" % (name, deploy_dir))
+
+        # ...and nothing is linked from the suffix alone
+        for name in (".vex.json", "_%s.ubifs" % vname, "_%s.ubi" % vname):
+            self.assertFalse(os.path.lexists(os.path.join(deploy_dir, name)),
+                             "%s was created from an empty IMAGE_LINK_NAME" % name)
+
+        # testexport copies these back out of DEPLOY_DIR_IMAGE
+        bitbake("-c testexport %s" % image)
+        for name in ('manifest', 'testdata.json'):
+            path = os.path.join(bb_vars['TEST_EXPORT_DIR'], 'data', name)
+            self.assertTrue(os.path.exists(path), "%s was not exported" % path)
