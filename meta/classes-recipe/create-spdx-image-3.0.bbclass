@@ -57,7 +57,9 @@ do_create_image_spdx[dirs] = "${SPDXIMAGEWORK}"
 do_create_image_spdx[file-checksums] += "${SPDX3_DEP_FILES}"
 do_create_image_spdx[vardeps] += "\
     SPDX_IMAGE_PURPOSE \
-    "
+    ${@'${SPDX_IMAGE_SUPPLIER}_name' if d.getVar('SPDX_IMAGE_SUPPLIER') else ''} \
+    ${@'${SPDX_IMAGE_SUPPLIER}_type' if d.getVar('SPDX_IMAGE_SUPPLIER') else ''} \
+"
 
 python do_create_image_spdx_setscene() {
     sstate_setscene(d)

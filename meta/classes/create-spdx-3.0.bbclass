@@ -231,7 +231,11 @@ do_create_spdx[depends] += " \
     ${PATCHDEPENDENCY} \
     ${@create_spdx_source_deps(d)} \
 "
-do_create_spdx[vardeps] += "${SPDX3_VAR_DEPS}"
+do_create_spdx[vardeps] += " \
+    ${SPDX3_VAR_DEPS} \
+    ${@'${SPDX_PACKAGE_SUPPLIER}_name' if d.getVar('SPDX_PACKAGE_SUPPLIER') else ''} \
+    ${@'${SPDX_PACKAGE_SUPPLIER}_type' if d.getVar('SPDX_PACKAGE_SUPPLIER') else ''} \
+"
 
 python do_create_spdx_setscene () {
     sstate_setscene(d)
@@ -253,7 +257,11 @@ do_create_package_spdx[dirs] = "${SPDXRUNTIMEDEPLOY}"
 do_create_package_spdx[cleandirs] = "${SPDXRUNTIMEDEPLOY}"
 do_create_package_spdx[deptask] = "do_create_spdx"
 do_create_package_spdx[rdeptask] = "do_create_spdx"
-do_create_package_spdx[vardeps] += "${SPDX3_VAR_DEPS}"
+do_create_package_spdx[vardeps] += " \
+    ${SPDX3_VAR_DEPS} \
+    ${@'${SPDX_PACKAGE_SUPPLIER}_name' if d.getVar('SPDX_PACKAGE_SUPPLIER') else ''} \
+    ${@'${SPDX_PACKAGE_SUPPLIER}_type' if d.getVar('SPDX_PACKAGE_SUPPLIER') else ''} \
+"
 
 python do_create_package_spdx_setscene () {
     sstate_setscene(d)
@@ -290,4 +298,3 @@ python spdx30_build_started_handler () {
 
 addhandler spdx30_build_started_handler
 spdx30_build_started_handler[eventmask] = "bb.event.BuildStarted"
-
