@@ -19,12 +19,12 @@
 #  - The recipe (.bb and .inc): ARCHIVER_MODE[recipe] = "1"
 #  - Filter the license, the recipe whose license in
 #    COPYLEFT_LICENSE_INCLUDE will be included, and in
-#    COPYLEFT_LICENSE_EXCLUDE will be excluded.
-#    COPYLEFT_LICENSE_INCLUDE = 'GPL* LGPL*'
-#    COPYLEFT_LICENSE_EXCLUDE = 'CLOSED Proprietary'
-# - The recipe type that will be archived:
-#    COPYLEFT_RECIPE_TYPES = 'target'
-# - The source mirror mode:
+#    COPYLEFT_LICENSE_EXCLUDE will be excluded:
+#     COPYLEFT_LICENSE_INCLUDE = 'GPL* LGPL*'
+#     COPYLEFT_LICENSE_EXCLUDE = 'CLOSED Proprietary'
+#  - The recipe type that will be archived:
+#     COPYLEFT_RECIPE_TYPES = 'target'
+#  - The source mirror mode:
 #    ARCHIVER_MODE[mirror] = "split" (default): Sources are split into
 #    per-recipe directories in a similar way to other archiver modes.
 #    Post-processing may be required to produce a single mirror directory.
@@ -33,13 +33,13 @@
 #    ARCHIVER_MODE[mirror] = "combined": All sources are placed into a single
 #    directory suitable for direct use as a mirror. Duplicate sources are
 #    ignored.
-# - Source mirror exclusions:
-#     ARCHIVER_MIRROR_EXCLUDE is a list of prefixes to exclude from the mirror.
-#     This may be used for sources which you are already publishing yourself
-#     (e.g. if the URI starts with 'https://mysite.com/' and your mirror is
-#     going to be published to the same site). It may also be used to exclude
-#     local files (with the prefix 'file://') if these will be provided as part
-#     of an archive of the layers themselves.
+#  - Source mirror exclusions:
+#    ARCHIVER_MIRROR_EXCLUDE is a list of prefixes to exclude from the mirror.
+#    This may be used for sources which you are already publishing yourself
+#    (e.g. if the URI starts with 'https://mysite.com/' and your mirror is
+#    going to be published to the same site). It may also be used to exclude
+#    local files (with the prefix 'file://') if these will be provided as part
+#    of an archive of the layers themselves.
 #
 
 # Create archive for all the recipe types
