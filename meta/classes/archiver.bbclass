@@ -33,6 +33,12 @@
 #    ARCHIVER_MODE[mirror] = "combined": All sources are placed into a single
 #    directory suitable for direct use as a mirror. Duplicate sources are
 #    ignored.
+#  - Source mirror inclusions:
+#    ARCHIVER_MIRROR_INCLUDE is a list of URI prefixes to always include in
+#    the mirror. This may be useful if recipes that are included in the mirror
+#    (due to their licenses) depend on some recipe that otherwise would not be
+#    included in the mirror, and that recipe uses files that are normally only
+#    available on a private server.
 #  - Source mirror exclusions:
 #    ARCHIVER_MIRROR_EXCLUDE is a list of prefixes to exclude from the mirror.
 #    This may be used for sources which you are already publishing yourself
@@ -72,8 +78,9 @@ do_ar_original[dirs] = "${ARCHIVER_OUTDIR} ${ARCHIVER_WORKDIR}"
 # This is a convenience for the shell script to use it
 
 def include_package(d, pn):
-
-    included, reason = copyleft_should_include(d)
+    included, reason = archiver_should_include(d)
+    if not included:
+        included, reason = copyleft_should_include(d)
     if not included:
         bb.debug(1, 'archiver: %s is excluded: %s' % (pn, reason))
         return False
@@ -93,6 +100,29 @@ def include_package(d, pn):
         return False
 
     return True
+
+def archiver_should_include(d):
+    ar_src = d.getVarFlag('ARCHIVER_MODE', 'src')
+    if ar_src == "mirror":
+        src_uri = (d.getVar('SRC_URI') or '').split()
+        if len(src_uri) == 0:
+            return False, None
+
+        mirror_inclusions = (d.getVar('ARCHIVER_MIRROR_INCLUDE') or '').split()
+
+        def is_included(url):
+            for prefix in mirror_inclusions:
+                if url.startswith(prefix):
+                    return True
+            return False
+
+        fetcher = bb.fetch2.Fetch(src_uri, d)
+
+        for ud in fetcher.expanded_urldata():
+            if is_included(ud.url):
+                return True, "URL matches ARCHIVER_MIRROR_INCLUDE"
+
+    return False, None
 
 python () {
     pn = d.getVar('PN')
@@ -154,6 +184,7 @@ python () {
 do_ar_prepare[vardeps] += " \
     ARCHIVER_MODE \
     ARCHIVER_MIRROR_EXCLUDE \
+    ARCHIVER_MIRROR_INCLUDE \
     COPYLEFT_LICENSE_EXCLUDE \
     COPYLEFT_LICENSE_INCLUDE \
     COPYLEFT_PN_EXCLUDE \
