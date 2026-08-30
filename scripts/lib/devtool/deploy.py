@@ -20,6 +20,7 @@ import oe.types
 import oe.package
 
 from devtool import exec_fakeroot_no_d, setup_tinfoil, check_workspace_recipe, DevtoolError
+from runqemu_utils import native_environment, pseudo_state_dir
 
 logger = logging.getLogger('devtool')
 
@@ -254,6 +255,85 @@ def deploy(args, config, basepath, workspace):
 
     return deploy_no_d(srcdir, workdir, path, strip_cmd, libdir, base_libdir, max_process, fakerootcmd, fakerootenv, args, file_globs=args.file_globs, packages_files=packages_files)
 
+def _deploy_local(args, target_dir, filelist, ftotalsize, tar_relpaths, allowed_files,
+                fakerootcmd, fakerootenv, path, recipe_outdir):
+    """Copy files directly into target_dir instead of over ssh/scp.
+
+    target_dir is expected to be a pseudo-managed rootfs previously extracted
+    on the host, e.g. by runqemu-extract-sdk or 'devtool ide-sdk --nfs' for a
+    target device or QEMU instance that NFS-mounts it.
+    """
+    if not os.path.isdir(target_dir):
+        raise DevtoolError('Target directory %s does not exist' % target_dir)
+    state_dir = pseudo_state_dir(target_dir)
+    if not os.path.isdir(state_dir):
+        raise DevtoolError(
+            '%s does not exist - %s does not look like a pseudo-managed rootfs '
+            '(e.g. one extracted by devtool ide-sdk --nfs).' % (state_dir, target_dir))
+
+    environment = native_environment()
+    pseudo = environment.get('PSEUDO')
+    native_sysroot = environment.get('OECORE_NATIVE_SYSROOT')
+    if not pseudo or not native_sysroot:
+        raise DevtoolError('qemu-helper-native did not provide pseudo')
+
+    if not args.no_check_space:
+        freespace = shutil.disk_usage(target_dir).free // 1024
+        if ftotalsize > freespace:
+            raise DevtoolError('Deploy failed - insufficient space on target '
+                            '(available %d, needed %d)' % (freespace, ftotalsize))
+
+    # destdir is target_dir itself: the script writes directly into the
+    # local pseudo-managed rootfs directory, not into the real filesystem root.
+    destdir = target_dir
+    shellscript = _prepare_remote_script(deploy=True,
+                                        destdir=destdir,
+                                        verbose=args.show_status,
+                                        nopreserve=args.no_preserve,
+                                        nocheckspace=True)
+
+    tmpdir = tempfile.mkdtemp(prefix='devtool')
+    tar_filelist_path = None
+    try:
+        script_path = os.path.join(tmpdir, 'devtool_deploy.sh')
+        with open(script_path, 'w') as f:
+            f.write(shellscript)
+        filelist_path = os.path.join(tmpdir, 'devtool_deploy.list')
+        with open(filelist_path, 'w') as f:
+            f.write('%d\n' % ftotalsize)
+            for fpath, fsize in filelist:
+                f.write('%s %d\n' % (fpath, fsize))
+
+        if allowed_files is not None:
+            tar_fd, tar_filelist_path = tempfile.mkstemp(prefix='devtool-deploy-filelist-')
+            with os.fdopen(tar_fd, 'w') as f:
+                for relpath in tar_relpaths:
+                    f.write('./' + relpath + '\n')
+            tar_cmd = 'tar cf - -T %s' % shlex.quote(tar_filelist_path)
+        else:
+            tar_cmd = 'tar cf - .'
+
+        # The extraction side needs its own pseudo session (with different database) than the recipe's own.
+        extract_cmd = 'PSEUDO_LOCALSTATEDIR=%s PSEUDO_INCLUDE_PATHS=%s %s -P %s sh %s %s %s %s' % (
+            shlex.quote(state_dir), shlex.quote(destdir), shlex.quote(pseudo),
+            shlex.quote(os.path.join(native_sysroot, 'usr')),
+            shlex.quote(script_path), shlex.quote(args.recipename),
+            shlex.quote(destdir), shlex.quote(filelist_path))
+        ret = exec_fakeroot_no_d(fakerootcmd, fakerootenv, path,
+                                '%s | %s' % (tar_cmd, extract_cmd),
+                                cwd=recipe_outdir, shell=True)
+    finally:
+        if tar_filelist_path:
+            os.remove(tar_filelist_path)
+        shutil.rmtree(tmpdir)
+
+    if ret != 0:
+        raise DevtoolError('Deploy failed - rerun with -s to get a complete '
+                        'error message')
+
+    logger.info('Successfully deployed %s to %s' % (recipe_outdir, target_dir))
+    return 0
+
 def _deploy_ssh(args, destdir, filelist, ftotalsize, tar_relpaths, allowed_files,
                 fakerootcmd, fakerootenv, path, recipe_outdir):
     """Copy files to target_dir over ssh/scp (user@hostname[:destdir])."""
@@ -342,12 +422,16 @@ def _deploy_ssh(args, destdir, filelist, ftotalsize, tar_relpaths, allowed_files
 def deploy_no_d(srcdir, workdir, path, strip_cmd, libdir, base_libdir, max_process, fakerootcmd, fakerootenv, args, file_globs=None, packages_files=None):
     import math
 
-    try:
-        host, destdir = args.target.split(':')
-    except ValueError:
-        destdir = '/'
+    if os.path.isabs(args.target):
+        # A local pseudo-managed rootfs directory (e.g. NFS-exported)
+        destdir = os.path.realpath(args.target)
     else:
-        args.target = host
+        try:
+            host, destdir = args.target.split(':')
+        except ValueError:
+            destdir = '/'
+        else:
+            args.target = host
     if not destdir.endswith('/'):
         destdir += '/'
 
@@ -436,6 +520,12 @@ def deploy_no_d(srcdir, workdir, path, strip_cmd, libdir, base_libdir, max_proce
             print('  %s' % item)
         return 0
 
+    if os.path.isabs(args.target):
+        # A local directory (e.g. an NFS-exported rootfs) rather than a
+        # user@host ssh target: copy the files in directly, no network needed.
+        return _deploy_local(args, os.path.realpath(args.target), filelist, ftotalsize, tar_relpaths,
+                            allowed_files, fakerootcmd, fakerootenv, path, recipe_outdir)
+
     return _deploy_ssh(args, destdir, filelist, ftotalsize, tar_relpaths,
                         allowed_files, fakerootcmd, fakerootenv, path, recipe_outdir)
 
@@ -503,10 +593,19 @@ def register_commands(subparsers, context):
 
     parser_deploy = subparsers.add_parser('deploy-target',
                                           help='Deploy recipe output files to live target machine',
-                                          description='Deploys a recipe\'s build output (i.e. the output of the do_install task) to a live target machine over ssh. By default, any existing files will be preserved instead of being overwritten and will be restored if you run devtool undeploy-target. Note: this only deploys the recipe itself and not any runtime dependencies, so it is assumed that those have been installed on the target beforehand. Use --package/--file-glob to deploy only a subset of the recipe\'s installed files.',
+                                          description='Deploys a recipe\'s build output (i.e. the output of '
+                                                      'the do_install task) to a live target machine over ssh, '
+                                                      'or directly into a local pseudo-managed rootfs directory '
+                                                      '(e.g. one extracted for NFS booting). Existing files are '
+                                                      'preserved by default and restored by devtool '
+                                                      'undeploy-target. Only the recipe itself is deployed, not '
+                                                      'its runtime dependencies. Use --package/--file-glob to '
+                                                      'deploy only a subset of the recipe\'s installed files.',
                                           group='testbuild')
     parser_deploy.add_argument('recipename', help='Recipe to deploy')
-    parser_deploy.add_argument('target', help='Live target machine running an ssh server: user@hostname[:destdir]')
+    parser_deploy.add_argument('target', help='Live target machine running an ssh server: user@hostname[:destdir]. '
+                               'Alternatively, an absolute path to a local pseudo-managed rootfs directory '
+                               '(e.g. one extracted by devtool ide-sdk --nfs) to copy the files into directly, without ssh.')
     parser_deploy.add_argument('-c', '--no-host-check', help='Disable ssh host key checking', action='store_true')
     parser_deploy.add_argument('-s', '--show-status', help='Show progress/status output', action='store_true')
     parser_deploy.add_argument('-n', '--dry-run', help='List files to be deployed only', action='store_true')
