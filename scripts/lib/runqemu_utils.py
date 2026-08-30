@@ -7,6 +7,7 @@
 """Extract and export rootfs tarballs for NFS booting."""
 
 import os
+import signal
 import subprocess
 import sys
 
@@ -118,6 +119,127 @@ def extract_sdk_main(argv=None):
         return 1
     try:
         extract_sdk_rootfs(*argv)
+    except RunQemuRootfsError as exc:
+        print('Error: %s' % exc)
+        return 1
+    return 0
+
+
+_NFS_ACTIONS = ('start', 'stop', 'restart')
+
+
+def _nfs_paths(instance):
+    state_dir = os.path.join(os.path.expanduser('~'), '.runqemu-sdk')
+    os.makedirs(state_dir, exist_ok=True)
+    return {
+        'exports': os.path.join(state_dir, 'exports%s' % instance),
+        'nfs_pid': os.path.join(state_dir, 'nfs%s.pid' % instance),
+    }
+
+
+def _nfs_ports(instance):
+    nfs_port = int(os.environ.get('NFSD_PORT', 3049 + 2 * instance))
+    mount_port = int(os.environ.get('MOUNTD_PORT', 3048 + 2 * instance))
+    return nfs_port, mount_port
+
+
+def _export_usage():
+    return 'Usage: %s {%s} <nfs-export-dir>' % (
+        sys.argv[0], '|'.join(_NFS_ACTIONS))
+
+
+def export_rootfs(action, rootfs_dir):
+    """Start, stop, or restart the userspace NFS server for *rootfs_dir*."""
+    if action not in _NFS_ACTIONS:
+        raise RunQemuRootfsError("Unknown command '%s'" % action)
+    if not os.path.isdir(rootfs_dir):
+        raise RunQemuRootfsError("'%s' does not exist" % rootfs_dir)
+
+    rootfs_dir = os.path.realpath(rootfs_dir)
+    state_dir = pseudo_state_dir(rootfs_dir)
+    if not os.path.isdir(state_dir):
+        raise RunQemuRootfsError(
+            '%s does not exist.\n'
+            'Did you create the export directory using runqemu-extract-sdk?' % state_dir)
+
+    if action == 'restart':
+        export_rootfs('stop', rootfs_dir)
+        return export_rootfs('start', rootfs_dir)
+
+    instance = int(os.environ.get('NFS_INSTANCE', '0'))
+    paths = _nfs_paths(instance)
+    if action == 'stop':
+        if os.path.exists(paths['nfs_pid']):
+            print('Stopping rpc.nfsd')
+            with open(paths['nfs_pid']) as pid_file:
+                pid = pid_file.read().strip()
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+            except (ValueError, ProcessLookupError):
+                # A stale PID file must not stop the cleanup below.
+                print('rpc.nfsd is not running')
+            os.unlink(paths['nfs_pid'])
+        else:
+            print('No PID file, not stopping rpc.nfsd')
+        if os.path.exists(paths['exports']):
+            print('Removing exports file')
+            os.unlink(paths['exports'])
+        return
+
+    environment = native_environment()
+    native_sysroot = environment.get('OECORE_NATIVE_SYSROOT')
+    pseudo = environment.get('PSEUDO')
+    if not native_sysroot or not pseudo:
+        raise RunQemuRootfsError('qemu-helper-native did not provide pseudo')
+
+    unfsd = os.path.join(native_sysroot, 'usr', 'bin', 'unfsd')
+    if not os.path.exists(unfsd):
+        raise RunQemuRootfsError(
+            'Unable to find unfsd binary in %s/usr/bin/\n'
+            "This shouldn't happen - something is missing from your toolchain installation"
+            % native_sysroot)
+
+    nfs_port, mount_port = _nfs_ports(instance)
+    environment['PSEUDO_LOCALSTATEDIR'] = state_dir
+    with open(paths['exports'], 'w') as exports_file:
+        exports_file.write('%s (rw,no_root_squash,no_all_squash,insecure)\n' % rootfs_dir)
+
+    command = [pseudo, '-P', os.path.join(native_sysroot, 'usr'), unfsd,
+               '-p', '-i', paths['nfs_pid'], '-e', paths['exports'],
+               '-n', str(nfs_port), '-m', str(mount_port)]
+    print('Creating exports file...')
+    print('Starting User Mode nfsd')
+    print('  %s' % ' '.join(command))
+    try:
+        subprocess.run(command, env=environment, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise RunQemuRootfsError('Error starting nfsd') from exc
+
+    if not os.path.exists(paths['nfs_pid']):
+        raise RunQemuRootfsError('rpc.nfsd did not start correctly')
+    with open(paths['nfs_pid']) as pid_file:
+        try:
+            os.kill(int(pid_file.read()), 0)
+        except OSError as exc:
+            raise RunQemuRootfsError('rpc.nfsd did not start correctly') from exc
+
+    print('')
+    print('On your target please remember to add the following options for NFS')
+    print('nfsroot=IP_ADDRESS:%s,nfsvers=3,port=%s,udp,mountport=%s' %
+          (rootfs_dir, nfs_port, mount_port))
+
+
+def export_rootfs_main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) != 2:
+        print(_export_usage())
+        return 1
+    if argv[0] not in _NFS_ACTIONS:
+        print("Unknown command '%s'" % argv[0])
+        print(_export_usage())
+        return 1
+    try:
+        export_rootfs(*argv)
     except RunQemuRootfsError as exc:
         print('Error: %s' % exc)
         return 1
