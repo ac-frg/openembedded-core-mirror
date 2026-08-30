@@ -2171,6 +2171,79 @@ class DevtoolDeployTargetTests(DevtoolBase):
                     extra_args = ' '.join(a for a in (strip_opt, filter_args) if a)
                     _deploy_and_check(extra_args, check_full_filelist=not filter_args, expected_files=expected_files)
 
+    @OETestTag("runqemu")
+    def test_devtool_deploy_target_path(self):
+        """Verify 'devtool deploy-target <recipe> <path>' deploys straight into
+        a local pseudo-managed rootfs directory (no ssh), and that a target
+        booting that same directory via NFS immediately sees the change.
+        """
+        self._check_runqemu_prerequisites()
+        self.assertTrue(not os.path.exists(self.workspacedir), 'This test cannot be run with a workspace directory under the build directory')
+        testrecipe = 'mdadm'
+        testfile = '/sbin/mdadm'
+        if "usrmerge" in get_bb_var('DISTRO_FEATURES'):
+            testfile = '/usr/sbin/mdadm'
+        testcommand = '/sbin/mdadm --help'
+        testimage = 'oe-selftest-image'
+
+        # A tar rootfs is needed both to extract a local copy of it (below)
+        # and for runqemu to NFS-boot straight from that extracted directory.
+        self.append_config('IMAGE_FSTYPES:append = " tar"\n')
+        bitbake("%s qemu-native qemu-helper-native" % testimage)
+        bb_vars = get_bb_vars(['DEPLOY_DIR_IMAGE', 'IMAGE_LINK_NAME'], testimage)
+        deploy_dir_image = bb_vars['DEPLOY_DIR_IMAGE']
+        image_link_name = bb_vars['IMAGE_LINK_NAME']
+        self.add_command_to_tearDown('bitbake -c clean %s' % testimage)
+        self.add_command_to_tearDown('rm -f %s/%s*' % (deploy_dir_image, testimage))
+
+        tempdir = tempfile.mkdtemp(prefix='devtoolqa')
+        self.track_for_cleanup(tempdir)
+        self.track_for_cleanup(self.workspacedir)
+        self.add_command_to_tearDown('bitbake -c clean %s' % testrecipe)
+        self.add_command_to_tearDown('bitbake-layers remove-layer */workspace')
+        runCmd('devtool modify %s -x %s' % (testrecipe, tempdir))
+        runCmd('devtool build %s' % testrecipe)
+
+        # Extract a local pseudo-managed rootfs the same way
+        rootfs_tarball = os.path.join(deploy_dir_image, image_link_name + '.tar')
+        self.assertExists(rootfs_tarball)
+        extractdir = tempfile.mkdtemp(prefix='devtoolqa')
+        self.track_for_cleanup(extractdir)
+        nfs_rootfs = os.path.join(extractdir, 'rootfs')
+        runCmd('runqemu-extract-sdk %s %s' % (rootfs_tarball, nfs_rootfs))
+        self.assertExists(nfs_rootfs)
+        self.assertExists(nfs_rootfs + '.pseudo_state')
+
+        # oe-selftest-image does not install mdadm by default, so the target must not see it yet.
+        self.assertNotExists(os.path.join(nfs_rootfs, testfile.lstrip('/')))
+
+        qemuboot = os.path.join(deploy_dir_image, image_link_name + '.qemuboot.conf')
+        self.assertExists(qemuboot)
+        launch_cmd = 'runqemu %s %s nographic' % (shlex.quote(qemuboot), shlex.quote(nfs_rootfs))
+        with runqemu(testimage, launch_cmd=launch_cmd) as qemu:
+            status, output = qemu.run("awk '$2 == \"/\" {print $3}' /proc/mounts")
+            self.assertEqual(status, 0)
+            self.assertEqual(output.strip(), 'nfs')
+
+            status, _ = qemu.run(testcommand)
+            self.assertNotEqual(status, 0, '%s should not be deployed yet' % testfile)
+
+            # Deploy directly into the local rootfs path (no ssh) while the target has it NFS-mounted live
+            deploy_cmd = 'devtool deploy-target %s %s' % (testrecipe, nfs_rootfs)
+            if self.logger.isEnabledFor(logging.DEBUG):
+                deploy_cmd += ' -s'
+            result = runCmd(deploy_cmd)
+            self.assertEqual(result.status, 0)
+            self.assertExists(os.path.join(nfs_rootfs, testfile.lstrip('/')))
+
+            status, _ = qemu.run(testcommand)
+            self.assertEqual(status, 0, '%s was not deployed' % testfile)
+
+            # Deploying again while the target still has this directory NFS-mounted live must still succeed.
+            result = runCmd(deploy_cmd)
+            self.assertEqual(result.status, 0)
+
+
 class DevtoolBuildImageTests(DevtoolBase):
 
     def test_devtool_build_image(self):
