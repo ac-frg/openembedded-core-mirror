@@ -643,7 +643,8 @@ class RecipeModified:
             os.path.join(image.rootfs, base_libdir),
             os.path.join(image.rootfs, libdir)
         ]
-        return so_paths
+        # base_libdir == libdir when usrmerge is in DISTRO_FEATURES (the default), dedupe
+        return list(dict.fromkeys(so_paths))
 
     def solib_search_path_str(self, image):
         """Return a : separated list of paths usable by GDB's set solib-search-path"""
