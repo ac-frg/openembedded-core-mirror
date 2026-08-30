@@ -256,7 +256,7 @@ def deploy(args, config, basepath, workspace):
     return deploy_no_d(srcdir, workdir, path, strip_cmd, libdir, base_libdir, max_process, fakerootcmd, fakerootenv, args, file_globs=args.file_globs, packages_files=packages_files)
 
 def _deploy_local(args, target_dir, filelist, ftotalsize, tar_relpaths, allowed_files,
-                fakerootcmd, fakerootenv, path, recipe_outdir):
+                fakerootcmd, fakerootenv, path, recipe_outdir, qemu_helper_native_sysroot=None):
     """Copy files directly into target_dir instead of over ssh/scp.
 
     target_dir is expected to be a pseudo-managed rootfs previously extracted
@@ -271,10 +271,17 @@ def _deploy_local(args, target_dir, filelist, ftotalsize, tar_relpaths, allowed_
             '%s does not exist - %s does not look like a pseudo-managed rootfs '
             '(e.g. one extracted by devtool ide-sdk --nfs).' % (state_dir, target_dir))
 
-    environment = native_environment()
-    pseudo = environment.get('PSEUDO')
-    native_sysroot = environment.get('OECORE_NATIVE_SYSROOT')
-    if not pseudo or not native_sysroot:
+    if qemu_helper_native_sysroot:
+        # Already resolved at script-generation time (when the build
+        # environment was sourced), so this can run standalone, e.g. from a
+        # devtool ide-sdk generated script/VS Code task.
+        native_sysroot = qemu_helper_native_sysroot
+        pseudo = os.path.join(native_sysroot, 'usr', 'bin', 'pseudo')
+    else:
+        environment = native_environment()
+        pseudo = environment.get('PSEUDO')
+        native_sysroot = environment.get('OECORE_NATIVE_SYSROOT')
+    if not pseudo or not native_sysroot or not os.path.exists(pseudo):
         raise DevtoolError('qemu-helper-native did not provide pseudo')
 
     if not args.no_check_space:
@@ -419,7 +426,7 @@ def _deploy_ssh(args, destdir, filelist, ftotalsize, tar_relpaths, allowed_files
 
     return 0
 
-def deploy_no_d(srcdir, workdir, path, strip_cmd, libdir, base_libdir, max_process, fakerootcmd, fakerootenv, args, file_globs=None, packages_files=None):
+def deploy_no_d(srcdir, workdir, path, strip_cmd, libdir, base_libdir, max_process, fakerootcmd, fakerootenv, args, file_globs=None, packages_files=None, qemu_helper_native_sysroot=None):
     import math
 
     if os.path.isabs(args.target):
@@ -524,7 +531,8 @@ def deploy_no_d(srcdir, workdir, path, strip_cmd, libdir, base_libdir, max_proce
         # A local directory (e.g. an NFS-exported rootfs) rather than a
         # user@host ssh target: copy the files in directly, no network needed.
         return _deploy_local(args, os.path.realpath(args.target), filelist, ftotalsize, tar_relpaths,
-                            allowed_files, fakerootcmd, fakerootenv, path, recipe_outdir)
+                            allowed_files, fakerootcmd, fakerootenv, path, recipe_outdir,
+                            qemu_helper_native_sysroot=qemu_helper_native_sysroot)
 
     return _deploy_ssh(args, destdir, filelist, ftotalsize, tar_relpaths,
                         allowed_files, fakerootcmd, fakerootenv, path, recipe_outdir)
